@@ -42,9 +42,20 @@ bitsToCounters thebits = [counter thebits x| x <- reverse [0..(Bits.bitSize theb
 wordsToCounters :: (Num b, Bits a) => [a] -> [b]
 wordsToCounters x = concatMap bitsToCounters x
 
+-- Convert given 'counter' value to Bits with that bit set/unset
+fromCounter :: (Num a, Num a1, Ord a, Bits a1) => a -> Int -> a1
+fromCounter c i
+	| c > 0		= Bits.bit i
+	| otherwise = 0
+
+-- This one does most of the work. This is what right justifies the bits in addition to handling words, etc
+fromCounters counts =  foldl1 (.|.) bitlist
+	where bitlist = map (uncurry fromCounter) taggedcounts
+		where taggedcounts = zip (reverse counts) [0..length counts -1]
+
 -- Shorthand for summing words. If we start with a two lists of Bits a.
 -- Should test to say if I can leave the signature as a generic. I recall there being some issue later. Might be fixable if I do NoMonomorphismRestriction
-sumWords :: [[Int]] -> [Int]
+sumWords :: [[Word8]] -> [Word8]
 sumWords wordlist = foldl1  listSum wordlist
 
 
@@ -54,7 +65,6 @@ mapByte = undefined
 
 -- Utilities for dealing with Map. The point of result is to convert found keys to a bunch of elements and deal with unpacking. I am 90% certain this is something to
 -- axe even before moving to a smarter implementation
-result x = map B.unpack (M.elems x)
 
 -- Wrapper around filter key because we are _only_ filtering on keys and don't want the extra junk associated with identity filters for
 -- elements all the time
@@ -68,35 +78,24 @@ hamming a b = Bits.popCount (Bits.xor a b)
 hamming' :: Bits b => [b] -> [b] -> Int
 hamming' a b = sum $ zipWith hamming a b
 
--- I can't even remember why anymore. Hamming for bytestrings?
-hamming'' a b = hamming' (B.unpack a) (B.unpack b)
-
--- Need to rename at least Pretty sure I need to either use bytestrings better or just drop them.
+-- Need to rename at least. Pretty sure I need to either use bytestrings better or just drop them.
 bits :: [Data.Word.Word8] -> B.ByteString
 bits = B.pack
 
-
 -- Addresses for testing
-hardAddresses :: M.Map C.ByteString [Int]
-hardAddresses = M.fromList [(bits [0,0,0,0], wordsToCounters ([0,0,0,1]::[Word8])),
-							(bits [1,1,1,1], wordsToCounters ([1,3,1,1]::[Word8])),
-							(bits [2,2,2,2], wordsToCounters ([2,5,2,1]::[Word8])),
-							(bits [4,4,4,4], wordsToCounters ([3,9,3,1]::[Word8]))]
+hardAddresses :: M.Map [Word8] [Word8]
+hardAddresses = M.fromList [([0,0,0,0], wordsToCounters ([0,0,0,1]::[Word8])),
+							( [1,1,1,1], wordsToCounters ([1,3,1,1]::[Word8])),
+							( [2,2,2,2], wordsToCounters ([2,5,2,1]::[Word8])),
+							( [4,4,4,4], wordsToCounters ([3,9,3,1]::[Word8]))]
 
 -- Filterkey based on standard hamming distance. Gives returned addresses, necessary for read/write ops.
-findAddresses addresses target = filterKey (\b -> (hamming'' b $ bits target) < range) addresses
+findAddresses :: M.Map [Word8] [Word8] -> [Word8] -> M.Map [Word8] [Word8]
+findAddresses addresses target = filterKey (\b -> (hamming' b target) < range) addresses
 
 -- Read that aggregates
 readAddress addresses target = map fromCounters (chunksOf 8 $ sumWords . M.elems $ findAddresses addresses target)
 
--- 
-fromCounter :: (Num a, Num a1, Ord a, Bits a1) => a -> Int -> a1
-fromCounter c i
-	| c > 0		= Bits.bit i
-	| otherwise = 0
 
-fromCounters counts =  foldl1 (.|.) bitlist
-	where bitlist = map (uncurry fromCounter) taggedcounts
-		where taggedcounts = zip (reverse counts) [0..length counts -1]
 --filter example
 --M.filterWithKey (\k a -> k == (bits [1,1,1,1])) hardAddresses
